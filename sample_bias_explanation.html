@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sample Bias Explained with Fitness Example</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+      color: #111827;
+      line-height: 1.65;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    h1 {
+      margin-bottom: 12px;
+      font-size: 3rem;
+      color: #0f172a;
+      letter-spacing: -0.04em;
+    }
+    .intro, .section {
+      background: #ffffff;
+      border-radius: 24px;
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+      padding: 28px;
+      margin-bottom: 28px;
+    }
+    .highlight {
+      display: inline-flex;
+      background: #e0f2fe;
+      color: #0369a1;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+    h2 {
+      color: #111827;
+      margin-top: 32px;
+      margin-bottom: 18px;
+      font-size: 1.8rem;
+    }
+    h3 {
+      margin-top: 28px;
+      margin-bottom: 12px;
+      color: #1f2937;
+      font-size: 1.2rem;
+    }
+    p {
+      margin: 0 0 16px;
+    }
+    .box {
+      background: #f8fafc;
+      border-left: 5px solid #0ea5e9;
+      padding: 22px 24px;
+      margin: 16px 0;
+      border-radius: 16px;
+    }
+    .box strong {
+      display: block;
+      margin-bottom: 10px;
+    }
+    ul {
+      padding-left: 24px;
+      margin-top: 0;
+    }
+    li {
+      margin-bottom: 12px;
+      font-size: 1rem;
+    }
+    .example-card, .lesson, .question, .answer, .fix-card {
+      border-radius: 18px;
+    }
+    .example-card {
+      background: #eef2ff;
+      padding: 24px;
+      border: 1px solid #c7d2fe;
+      margin-top: 18px;
+    }
+    .bias-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      margin-top: 24px;
+    }
+    .bias-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 22px;
+      border-radius: 18px;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .bias-item h4 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 1.05rem;
+      color: #0f172a;
+    }
+    .bias-icon {
+      font-size: 2rem;
+      margin-bottom: 14px;
+    }
+    .visual {
+      display: flex;
+      justify-content: center;
+      margin: 15px 0 14px;
+    }
+    .mini-chart {
+      width: 100%;
+      max-width: 220px;
+      border-radius: 16px;
+      padding: 16px;
+      background: #ffffff;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+    }
+    .chart-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .person {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #93c5fd;
+    }
+    .person.selected { background: #2563eb; }
+    .person.excluded { background: #fca5a5; opacity: 0.8; }
+    .person.missing { background: #cbd5e1; }
+    .person.survivor { background: #4ade80; }
+    .person.dropped { background: #f87171; }
+    .chart-label {
+      font-size: 0.9rem;
+      color: #334155;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .question {
+      background: #fefce8;
+      border: 1px solid #fde68a;
+      padding: 18px;
+      margin-top: 20px;
+      font-weight: 700;
+    }
+    .answer {
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      padding: 18px;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+    .lesson {
+      background: #e2e8f0;
+      padding: 22px;
+      margin-top: 20px;
+      color: #0f172a;
+    }
+    .fix-card {
+      background: #dbeafe;
+      border: 1px solid #93c5fd;
+      padding: 20px;
+      margin-top: 18px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff8dd;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      padding: 10px 14px;
+      border-radius: 999px;
+      margin-top: 12px;
+      font-weight: 600;
+    }
+    footer {
+      text-align: center;
+      margin-top: 32px;
+      color: #475569;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="highlight">Sample Bias Made Simple</div>
+      <h1>Why a biased sample can give the wrong answer</h1>
+      <p>Sample bias happens when the people or items chosen for a study do not fairly represent the whole population. That makes results misleading, like judging a whole pot of soup from just the top layer.</p>
+    </header>
+
+    <section class="intro">
+      <h2>What is Sample Bias? 🤔</h2>
+      <p>Sample bias means the group selected for analysis is not a fair cross-section of the entire population.</p>
+      <div class="box">
+        <strong>Imagine this:</strong> You want to know how the full population tastes a soup, but you only sample the top layer. You miss the flavors at the bottom, so your opinion is incomplete and biased.
+      </div>
+      <div class="fix-card">
+        <strong>Good to know:</strong> A strong sample should be wide, random, and include all types of people who matter for the question.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Fitness Example: Why gym-only data is biased 🏋️</h2>
+      <p>Suppose you want to know the average fitness level of adults in a city. Instead of asking a wide range of people, you only collect data from gym visitors.</p>
+      <div class="example-card">
+        <h3>What happens?</h3>
+        <ul>
+          <li>Gym-goers are not the same as all adults.</li>
+          <li>They are often fitter, more active, and more focused on health.</li>
+          <li>So the study will likely say “average fitness is high,” even if many adults outside the gym are less fit.</li>
+        </ul>
+      </div>
+
+      <div class="box">
+        <strong>Quick visual:</strong> The gym group looks like the top layer of the city’s fitness community. It does not show people who exercise at home, walk, or do no exercise at all.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Sample bias types explained with fitness visuals</h2>
+      <div class="bias-grid">
+        <div class="bias-item">
+          <div class="bias-icon">🎯</div>
+          <h4>Selection Bias</h4>
+          <p>The survey picks people from the gym only.</p>
+          <div class="visual">
+            <div class="mini-chart">
+              <div class="chart-row">
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+              </div>
+              <div class="chart-row">
+                <div class="person"></div>
+                <div class="person"></div>
+                <div class="person"></div>
+                <div class="person"></div>
+                <div class="person"></div>
+              </div>
+            </div>
+          </div>
+          <div class="chart-label">Selected sample is only the top group.</div>
+        </div>
+
+        <div class="bias-item">
+          <div class="bias-icon">🚫</div>
+          <h4>Exclusion Bias</h4>
+          <p>People who do not go to the gym are left out.</p>
+          <div class="visual">
+            <div class="mini-chart">
+              <div class="chart-row">
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+              </div>
+              <div class="chart-row">
+                <div class="person excluded"></div>
+                <div class="person excluded"></div>
+                <div class="person excluded"></div>
+              </div>
+            </div>
+          </div>
+          <div class="chart-label">Excluded group is invisible in results.</div>
+        </div>
+
+        <div class="bias-item">
+          <div class="bias-icon">🙋‍♀️</div>
+          <h4>Self-Selection Bias</h4>
+          <p>Only the most motivated gym users choose to answer.</p>
+          <div class="visual">
+            <div class="mini-chart">
+              <div class="chart-row">
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person"></div>
+              </div>
+              <div class="chart-label">Volunteers are usually the strongest supporters.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bias-item">
+          <div class="bias-icon">🗂️</div>
+          <h4>Undercoverage Bias</h4>
+          <p>The survey frame only includes gym members.</p>
+          <div class="visual">
+            <div class="mini-chart">
+              <div class="chart-row">
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person selected"></div>
+                <div class="person missing"></div>
+                <div class="person missing"></div>
+              </div>
+              <div class="chart-label">Some groups are missing from the list entirely.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bias-item">
+          <div class="bias-icon">🏁</div>
+          <h4>Survivorship Bias</h4>
+          <p>Only people who continue going to the gym are counted.</p>
+          <div class="visual">
+            <div class="mini-chart">
+              <div class="chart-row">
+                <div class="person survivor"></div>
+                <div class="person survivor"></div>
+                <div class="person dropped"></div>
+              </div>
+              <div class="chart-label">Dropouts do not appear in the study.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Detailed bias breakdown with the gym example</h2>
+
+      <h3>1. Selection Bias</h3>
+      <p>Only gym-goers are selected for the survey. That means the sample is not representative of all adults.</p>
+      <p><strong>Effect:</strong> The study overestimates fitness levels because gym users are generally fitter.</p>
+
+      <h3>2. Exclusion Bias</h3>
+      <p>Adults who do not go to the gym are excluded. Their fitness habits and experiences are ignored.</p>
+      <p><strong>Effect:</strong> Important voices are missing, so the result is too positive.</p>
+
+      <h3>3. Self-Selection Bias</h3>
+      <p>If the survey is optional, only the most motivated gym attendees may respond. People who feel neutral or negative may skip it.</p>
+      <p><strong>Effect:</strong> The results become even more skewed toward fit and happy gym members.</p>
+
+      <h3>4. Undercoverage Bias</h3>
+      <p>The survey only covers people who are part of the gym sampling frame, not the whole city.</p>
+      <p><strong>Effect:</strong> whole groups such as older adults, busy workers, or home exercisers are underrepresented.</p>
+
+      <h3>5. Survivorship Bias</h3>
+      <p>The study focuses on people who continue going to the gym, ignoring those who quit due to injury, boredom, or busy schedules.</p>
+      <p><strong>Effect:</strong> The sample makes gym-going look more successful than it really is.</p>
+    </section>
+
+    <section class="section">
+      <h2>Why this matters</h2>
+      <p>When the sample is biased, the conclusion is likely wrong. In this gym example, the study would probably say “most adults are very fit,” even though the full city includes many less active people.</p>
+      <div class="lesson">
+        To avoid bias, choose a sample that includes many different adults across the city, not just gym members. That gives you a fairer and more accurate answer.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Practice check ✔️</h2>
+      <div class="question">If a survey about eating habits only includes restaurant customers, what type of bias is that?</div>
+      <div class="answer"><strong>Answer:</strong> Selection bias. The sample is chosen from only one group, so it does not represent all people.</div>
+      <div class="question">If a school only asks top-performing students about teaching effectiveness, what type of bias is that?</div>
+      <div class="answer"><strong>Answer:</strong> Selection bias again, because only one group is asked and other students are ignored.</div>
+    </section>
+
+    <footer>
+      <p>Learning tip: Always ask whether the people surveyed truly represent the full population before trusting results.</p>
+    </footer>
+  </div>
+</body>
+</html>
