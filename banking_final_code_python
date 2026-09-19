@@ -1,0 +1,280 @@
+# NorthStar Bank — Term Deposit Subscription Prediction
+
+*A end-to-end classification project.*
+
+**The business problem:** NorthStar Bank's Marketing team currently phones *every* customer for a Term Deposit campaign. That's expensive and most calls go nowhere. My job as the data scientist is to predict **who is likely to subscribe** so Marketing can call the right people first.
+
+**Type of problem:** Binary classification — the target `y` is `yes` (subscribed) or `no`.
+
+**Scoring metric:** **Macro F1**. I use this (not accuracy) because only ~12% of customers subscribe — a lazy model that predicts `no` for everyone would be ~88% accurate but useless. Macro F1 forces the model to actually find the rare subscribers.
+
+
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.metrics import (
+    f1_score,
+    classification_report,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+)
+
+sns.set_theme(style="whitegrid")
+pd.set_option("display.max_columns", None)
+RANDOM_STATE = 42
+
+train = pd.read_csv("train.csv")
+test = pd.read_csv("test.csv")
+sample_submission = pd.read_csv("sample_submission.csv")
+
+print("train shape:", train.shape)
+print("test  shape:", test.shape)
+print("submission shape:", sample_submission.shape)
+train.head()
+test.head()
+
+train.info()
+none of the records are null. hence no backfill required.
+print("\nMissing values per column:")
+print(train.isna().sum())
+NO NANs present in the data.
+print("\nDuplicate rows:", train.duplicated().sum())
+No Duplicates Present
+# Target distribution
+target_counts = train["y"].value_counts()
+target_pct = train["y"].value_counts(normalize=True) * 100
+print(pd.concat([target_counts.rename("count"), target_pct.rename("percent")], axis=1))
+
+plt.figure(figsize=(5, 4))
+sns.countplot(x="y", data=train, hue="y", palette="viridis", legend=False)
+plt.title("Target distribution (y)")
+plt.show()
+approximately 12 percent of data has positive scenarios.. hence we will need to apply smote and reduce my class imbalance
+train.describe(include="number").T
+
+train["job"].value_counts()
+
+train["marital"].value_counts()
+
+train["education"].value_counts()
+
+train["default"].value_counts()
+
+train["housing"].value_counts()
+
+train["loan"].value_counts()
+
+train["contact"].value_counts()
+
+train["month"].value_counts()
+
+train["poutcome"].value_counts()
+
+train["y"].value_counts()
+
+NO anomalies detected with respect to categorical columns hence cleaning is not required
+# Encode target as 1/0 so the MEAN of the column = subscription rate
+train["y_num"] = (train["y"] == "yes").astype(int)
+baseline_rate = train["y_num"].mean()
+print(f"Overall subscription rate (baseline): {baseline_rate:.1%}")
+
+cat_cols = ["job", "marital", "education", "default", "housing",
+            "loan", "contact", "month", "poutcome"]
+
+fig, axes = plt.subplots(3, 3, figsize=(20, 16))
+for ax, col in zip(axes.ravel(), cat_cols):
+    # rate AND count per category — count is what protects us from the small-sample trap
+    g = (train.groupby(col)["y_num"]
+              .agg(rate="mean", n="size")
+              .sort_values("rate", ascending=False))
+
+    # green = beats the overall baseline, grey = below it
+    colors = ["#2a9d8f" if r >= baseline_rate else "#adb5bd" for r in g["rate"]]
+    bars = ax.barh(g.index.astype(str), g["rate"], color=colors)
+    ax.invert_yaxis()  # best group on top
+    ax.axvline(baseline_rate, color="red", ls="--", lw=1, label="overall rate")
+
+    # annotate every bar with the rate and the sample size n
+    for bar, r, n in zip(bars, g["rate"], g["n"]):
+        ax.text(r + 0.005, bar.get_y() + bar.get_height() / 2,
+                f"{r:.0%}  (n={n:,})", va="center", fontsize=8)
+
+    ax.set_title(f"Subscription rate by {col}")
+    ax.set_xlabel("P(subscribe)")
+    ax.set_xlim(0, g["rate"].max() * 1.30)
+    ax.legend(loc="lower right", fontsize=8)
+plt.tight_layout()
+plt.show()
+
+# Linear correlation ONLY works on numeric features and ONLY sees straight-line links.
+# It's a quick sanity check + our leak detector (duration will scream here).
+num_cols = ["age", "balance", "day", "campaign", "pdays", "previous"]
+corr = train[num_cols + ["duration", "y_num"]].corr()["y_num"].sort_values(ascending=False)
+print("Linear correlation with subscription (y_num):")
+print(corr.round(3))
+## Data leakage — dropping `duration`
+
+`duration` is the length of the call in **seconds**. It is the single most correlated feature with `y`, but it is a **leak from the future**:
+
+> The model has to decide *whether to make the call at all*. At that moment the call hasn't happened, so `duration` is unknown. A model trained on it looks amazing in the notebook and is useless in production.
+
+Therefore we **drop `duration`**. This is a deliberate business-driven decision, not a modelling accident.
+
+##  Data preparation
+
+Steps:
+1. **Drop leakage / non-predictive columns**: `duration` (leak) and the helper `y_num`.
+2. **Separate features `X` and target `y`.**
+3. **Encode categoricals** with one-hot encoding (`pd.get_dummies`).  We align train/test columns so the test set has exactly the same feature columns.
+4. **Split** into train/validation using a **stratified** split so the ~12% positive rate is preserved in both halves — essential for a reliable Macro F1 estimate.
+# Target: encode yes/no as 1/0
+y = (train["y"] == "yes").astype(int)
+
+# Drop the leakage column (duration), the target (y) and the EDA helper (y_num) if present
+LEAK_COLS = ["duration"]
+X_encoded = pd.get_dummies(
+    train.drop(columns=["y", "y_num"] + LEAK_COLS, errors="ignore")
+)
+
+# Keep the real (unlabelled) test.csv aside for the FINAL predictions.csv later
+submit_ids = test["id"]
+X_submit_encoded = pd.get_dummies(test.drop(columns=["id"] + LEAK_COLS, errors="ignore"))
+
+# Align the submission columns to the training columns (fill any missing with 0)
+X_encoded, X_submit_encoded = X_encoded.align(
+    X_submit_encoded, join="left", axis=1, fill_value=0
+)
+
+print("Encoded feature matrix:", X_encoded.shape)
+print("Submission matrix     :", X_submit_encoded.shape)
+
+## Split → SMOTE → Scale
+
+To *compare* models we need real labels to score against, and `test.csv` has none. So we split the labelled `train` into a **training set** and a held-out **test set** (both keep their labels). The flow:
+
+1. **Split** `train` → train (80%) + test (20%), stratified to keep the ~12% positive rate in both.
+2. **SMOTE the training set only** — this creates synthetic `yes` rows to balance the classes. The held-out test set is **never** resampled (that would leak synthetic rows and fake the score).
+3. **Scale** — fit `StandardScaler` on the balanced training data, then transform both train and test with that same scaler.
+
+The result is `X_train_sm` / `y_train_sm` (balanced) for training and `X_test_scaled` / `y_test` (real, untouched) for honest evaluation.
+
+# STEP 1 — split the LABELLED train into train + test so we have labels to score against
+X_train, X_test, y_train, y_test = train_test_split(
+    X_encoded, y,
+    test_size=0.2,
+    stratify=y,
+    random_state=RANDOM_STATE,
+)
+
+print("Train:", X_train.shape, " positives:", round(y_train.mean(), 3))
+print("Test :", X_test.shape, " positives:", round(y_test.mean(), 3), " (held out, untouched)")
+
+# STEP 2 — SMOTE the TRAINING portion ONLY (never the held-out test set)
+from imblearn.over_sampling import SMOTE
+
+X_train_sm, y_train_sm = SMOTE(random_state=RANDOM_STATE).fit_resample(X_train, y_train)
+
+print("Before SMOTE:", X_train.shape, " positives:", round(y_train.mean(), 3))
+print("After  SMOTE:", X_train_sm.shape, " positives:", round(y_train_sm.mean(), 3))
+print(y_train_sm.value_counts())
+
+## Build & compare three models
+
+We train **Logistic Regression, KNN and a Decision Tree** on the same balanced + scaled training data (`X_train_scaled`, `y_train_sm`) and score each on the held-out **test set** (`X_test_scaled`, `y_test`), which keeps its real ~12% positive rate. Because **Macro F1** is the competition metric, that's the column to watch when picking a winner.
+
+# STEP 3 — scale: fit on the SMOTE-balanced training data, transform train + test with the SAME scaler
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+X_train_scaled = pd.DataFrame(
+    scaler.fit_transform(X_train_sm), columns=X_train_sm.columns, index=X_train_sm.index
+)
+X_test_scaled = pd.DataFrame(
+    scaler.transform(X_test), columns=X_test.columns, index=X_test.index
+)
+
+print("Scaled train:", X_train_scaled.shape, " positives:", round(y_train_sm.mean(), 3))
+print("Scaled test :", X_test_scaled.shape, " positives:", round(y_test.mean(), 3))
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+# The three models to compare
+log_reg_m = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)
+knn_m = KNeighborsClassifier(n_neighbors=21)
+tree_m = DecisionTreeClassifier(random_state=RANDOM_STATE)
+
+labels = ["no", "yes"]
+results_multi_class = []
+
+for name, model in [('Logistic Regression', log_reg_m), ('KNN', knn_m), ('Decision Tree', tree_m)]:
+    model.fit(X_train_scaled, y_train_sm)     # fit on SMOTE-balanced + scaled training data
+    print(f"Model: {name}")
+    y_pred = model.predict(X_test_scaled)     # predict on the held-out test set
+    metrics = {
+        "Model": name,
+        "Accuracy": accuracy_score(y_test, y_pred),
+        "Precision": precision_score(y_test, y_pred, average='macro'),
+        "Recall": recall_score(y_test, y_pred, average='macro'),
+        "F1 Score": f1_score(y_test, y_pred, average='macro'),
+    }
+    print(classification_report(y_test, y_pred, target_names=labels))
+    results_multi_class.append(metrics)
+
+pd.DataFrame(results_multi_class).set_index("Model").round(4)
+
+## Final submission — KNN
+
+KNN gave the best Macro F1 in the comparison, so we use it for the submission. For the **strongest** final model we now train on **all** labelled data (not just the 80% split), then predict on the real `test.csv`:
+
+1. **SMOTE** the full `X_encoded` (every labelled row) to balance the classes.
+2. **Scale** — fit a fresh `StandardScaler` on that balanced data, transform both it and the submission matrix.
+3. **Train KNN** and predict on `X_submit_encoded`.
+4. Map `1/0 → yes/no` and write `predictions.csv` in the required `id,prediction` format.
+
+# Train the final KNN on ALL labelled data, then predict on the real test.csv
+
+# 1. SMOTE the full training set
+X_full_sm, y_full_sm = SMOTE(random_state=RANDOM_STATE).fit_resample(X_encoded, y)
+
+# 2. Scale: fit on the balanced full data, transform it + the submission matrix with the SAME scaler
+final_scaler = StandardScaler()
+X_full_scaled = pd.DataFrame(
+    final_scaler.fit_transform(X_full_sm), columns=X_full_sm.columns, index=X_full_sm.index
+)
+X_submit_scaled = pd.DataFrame(
+    final_scaler.transform(X_submit_encoded),
+    columns=X_submit_encoded.columns,
+    index=X_submit_encoded.index,
+)
+
+# 3. Train KNN and predict on the submission set
+final_knn = KNeighborsClassifier(n_neighbors=21)
+final_knn.fit(X_full_scaled, y_full_sm)
+submit_pred = final_knn.predict(X_submit_scaled)
+
+print("Trained on:", X_full_scaled.shape, " positives:", round(y_full_sm.mean(), 3))
+print("Predicted  :", len(submit_pred), "rows")
+
+# Map 1/0 -> yes/no and write predictions.csv in the required format
+submission = pd.DataFrame({
+    "id": submit_ids,
+    "prediction": np.where(submit_pred == 1, "yes", "no"),
+})
+
+# Safety checks on the output format
+assert list(submission.columns) == ["id", "prediction"]
+assert len(submission) == len(sample_submission)
+assert set(submission["prediction"].unique()).issubset({"yes", "no"})
+
+submission.to_csv("predictions.csv", index=False)
+print("Saved predictions.csv with", len(submission), "rows.")
+print("\nPredicted class balance:")
+print(submission["prediction"].value_counts(normalize=True).round(3))
+submission.head()
